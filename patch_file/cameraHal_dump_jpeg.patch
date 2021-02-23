@@ -1,0 +1,78 @@
+diff --git a/CameraHal/CameraUSBAdapter.cpp b/CameraHal/CameraUSBAdapter.cpp
+index b565930..3d7ea24 100755
+--- a/CameraHal/CameraUSBAdapter.cpp
++++ b/CameraHal/CameraUSBAdapter.cpp
+@@ -20,7 +20,7 @@
+  *
+  *****************************************************************************/
+ #include "CameraHal.h"
+-
++#include <cutils/properties.h>
+ 
+ namespace android{
+ 
+@@ -982,12 +982,16 @@ end:
+     return err;
+ }
+ 
++static int write_cnt = 0;
++
+ //define  the frame info ,such as w, h ,fmt 
+ int CameraUSBAdapter::reprocessFrame(FramInfo_s* frame)
+ {
+     int ret = 0;
+ 	long phy_addr;
++    char value[PROPERTY_VALUE_MAX];
+ 
+ #if defined(RK_DRM_GRALLOC) // should use fd
+ 	phy_addr = mPreviewBufProvider->getBufShareFd(frame->frame_index);
+ #else
+@@ -1010,6 +1014,25 @@ int CameraUSBAdapter::reprocessFrame(FramInfo_s* frame)
+           LOGE("frame size is invalid !!!");
+           return -1;
+         }
++
++        if (property_get("record_jpeg_dec", value, "0") && (atoi(value) > 0)) {
++            FILE* fp = NULL;
++            char filename[40];
++
++            write_cnt++;
++            sprintf(filename, "/data/camera/mjpeg_%dx%d_%d.jpg",
++                    frame->frame_width, frame->frame_height, write_cnt);
++            fp = fopen(filename, "wb+");
++            if (fp > 0) {
++                fwrite((char*)frame->vir_addr, 1, input_len, fp);
++                fclose(fp);
++                ALOGD("write success mjpeg data to %s", filename);
++            } else {
++                ALOGE("create %s failed(%d, %s)", filename, fp, strerror(errno));
++            }
++        }
++
+         ret = mMjpegDecoder.decode(mMjpegDecoder.decoder,
+                                     (unsigned char*)&outbuf, &output_len, 
+     		                          (unsigned char*)frame->vir_addr, &input_len,
+@@ -1043,6 +1066,23 @@ int CameraUSBAdapter::reprocessFrame(FramInfo_s* frame)
+     frame->phy_addr = phy_addr;
+     frame->vir_addr = mPreviewBufProvider->getBufVirAddr(frame->frame_index);
+     frame->zoom_value = mZoomVal;
++
++    if (property_get("record_jpeg_dec", value, "0") && (atoi(value) > 0)) {
++        FILE* fp2 = NULL;
++        char filename2[40];
++
++        sprintf(filename2, "/data/camera/yuv_%dx%d_%d.yuv",
++                frame->frame_width, frame->frame_height, write_cnt);
++        fp2 = fopen(filename2, "wb+");
++        if (fp2 > 0) {
++            fwrite((char*)frame->vir_addr, 1,
++                   frame->frame_width * frame->frame_height * 3 / 2, fp2);
++            fclose(fp2);
++            LOGD("write success yuv data to %s", filename2);
++        } else {
++            LOGE("create %s failed(%d, %s)", filename2, fp2, strerror(errno));
++        }
++    }
+ 	
+ 	int w,h;
+ 	w = frame->frame_width;
